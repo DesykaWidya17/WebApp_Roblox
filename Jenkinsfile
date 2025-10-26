@@ -11,34 +11,36 @@ pipeline {
     }
 
     stages {
+
         /* === 1. CHECKOUT SOURCE CODE === */
         stage('Checkout SCM') {
             steps {
                 echo "📥 Checking out source code from ${REPO_URL}..."
-                checkout scm
+                git branch: 'main', url: "${REPO_URL}"
             }
         }
 
         /* === 2. BUILD APP SOURCE CODE === */
         stage('Build & Setup Environment') {
             steps {
-                echo "🧱 Setting up Python environment and dependencies..."
+                echo "🧱 Setting up Python environment..."
                 bat '''
                 python --version
+                pip install --upgrade pip
                 pip install -r requirements.txt
-                echo ✅ Python dependencies installed successfully!
+                echo Python dependencies installed successfully.
                 '''
             }
         }
 
         /* === 3. UNIT TEST === */
-        stage('Test App') {
+        stage('Run Unit Tests') {
             steps {
-                echo "🧪 Running unit tests for Flask app..."
+                echo "🧪 Running unit tests..."
                 bat '''
-                timeout /t 5 /nobreak >nul
-                if not exist tests echo ⚠️ No tests folder found. Skipping pytest.
-                if exist tests (
+                if not exist tests (
+                    echo No tests folder found. Skipping pytest.
+                ) else (
                     pip install pytest requests
                     pytest -v --maxfail=1 --disable-warnings || exit /b 1
                 )
@@ -56,32 +58,29 @@ pipeline {
             }
         }
 
-        /* === 5. DOCKER TEST (RUN CONTAINER + HEALTH CHECK) === */
+        /* === 5. RUN & TEST CONTAINER === */
         stage('Docker Test Run') {
             steps {
-                echo "🚀 Running Flask container for health check..."
+                echo "🚀 Running container and performing health check..."
                 bat '''
                 docker rm -f %APP_NAME% 1>nul 2>&1
                 docker run -d --name %APP_NAME% -p %EXTERNAL_PORT%:%INTERNAL_PORT% %IMAGE_NAME%:latest
+                echo Waiting for Flask app to start...
 
-                echo 🔍 Waiting for Flask app to start...
-                setlocal enabledelayedexpansion
-                set /a retries=0
-                :retry
-                curl -f http://localhost:%EXTERNAL_PORT% >nul 2>&1
-                if !errorlevel! neq 0 (
-                    if !retries! lss 6 (
-                        set /a retries+=1
-                        echo Flask not ready yet... retry !retries!/6
-                        timeout /t 5 /nobreak >nul
-                        goto retry
-                    ) else (
-                        echo ❌ App did not start correctly after 6 retries!
-                        exit /b 1
-                    )
-                )
-                echo ✅ Flask app is reachable!
-                endlocal
+                powershell -Command ^
+                "$retries = 0; ^
+                while ($retries -lt 6) { ^
+                    try { ^
+                        Invoke-WebRequest -Uri http://localhost:%EXTERNAL_PORT% -UseBasicParsing | Out-Null; ^
+                        Write-Host 'Flask app is reachable!'; ^
+                        exit 0; ^
+                    } catch { ^
+                        Write-Host 'Flask not ready yet... retry' ($retries+1) '/6'; ^
+                        Start-Sleep -Seconds 5; ^
+                        $retries++; ^
+                    } ^
+                } ^
+                Write-Host 'App did not start correctly after retries!'; exit 1;"
                 '''
             }
         }
@@ -106,17 +105,17 @@ pipeline {
     /* === 7. POST ACTIONS === */
     post {
         always {
-            echo "🧹 Cleaning up local Docker containers..."
+            echo "🧹 Cleaning up containers..."
             bat '''
             docker stop %APP_NAME% 1>nul 2>&1
             docker rm %APP_NAME% 1>nul 2>&1
             '''
         }
         success {
-            echo "✅ Pipeline completed successfully! Image pushed to Docker Hub."
+            echo "✅ Pipeline completed successfully and pushed to Docker Hub."
         }
         failure {
-            echo "❌ Pipeline failed! Please check logs for errors."
+            echo "❌ Pipeline failed! Check Jenkins logs for details."
         }
     }
 }
