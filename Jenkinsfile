@@ -8,6 +8,9 @@ pipeline {
         INTERNAL_PORT = '5000'
         EXTERNAL_PORT = '5050'
         DOCKER_HUB_USER = 'desykawidya'
+
+        // ✅ Tambahkan path Python agar Jenkins mengenalinya
+        PATH = "C:\\Users\\DESYKA\\AppData\\Local\\Programs\\Python\\Python312;C:\\Users\\DESYKA\\AppData\\Local\\Programs\\Python\\Python312\\Scripts;${env.PATH}"
     }
 
     stages {
@@ -39,7 +42,7 @@ pipeline {
             }
         }
 
-        /* === 3. UNIT TESTS (Optional) === */
+        /* === 3. UNIT TESTS === */
         stage('Run Unit Tests') {
             steps {
                 echo "🧪 Running Flask unit tests..."
