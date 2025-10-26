@@ -17,18 +17,16 @@ pipeline {
         stage('Build Docker image') {
             steps {
                 echo "🐳 Building Docker image..."
-                sh 'docker build -t ${IMAGE_NAME} .'
+                bat 'docker build -t %IMAGE_NAME% .'
             }
         }
 
         stage('Run Container') {
             steps {
                 echo "🚀 Starting container..."
-                sh '''
-                    # Stop and remove existing container if exists
-                    docker rm -f ${CONTAINER_NAME} || true
-                    # Run new container
-                    docker run -d -p 5000:5000 --name ${CONTAINER_NAME} ${IMAGE_NAME}
+                bat '''
+                    docker rm -f %CONTAINER_NAME% || echo No container to remove
+                    docker run -d -p 5000:5000 --name %CONTAINER_NAME% %IMAGE_NAME%
                 '''
             }
         }
@@ -36,9 +34,9 @@ pipeline {
         stage('Test') {
             steps {
                 echo "🔍 Testing if Flask app is reachable..."
-                sh '''
-                    sleep 5
-                    curl -f http://localhost:5000/ || (echo "App did not start correctly!" && exit 1)
+                bat '''
+                    timeout /t 5 >nul
+                    curl -f http://localhost:5000/ || (echo App did not start correctly! && exit /b 1)
                 '''
             }
         }
@@ -49,7 +47,7 @@ pipeline {
             }
             steps {
                 echo "🧹 Cleaning up old images..."
-                sh 'docker image prune -f'
+                bat 'docker image prune -f'
             }
         }
     }
