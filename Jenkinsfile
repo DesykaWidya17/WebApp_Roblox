@@ -37,11 +37,20 @@ pipeline {
             steps {
                 echo "🔍 Testing if Flask app is reachable..."
                 bat '''
-                REM Tunggu Flask siap
-                timeout /t 10 /nobreak
+                REM Tunggu Flask siap dulu
+                timeout /t 10 /nobreak >nul
 
                 echo Testing connection to Flask app...
                 curl -f http://localhost:5000/ || (echo App did not start correctly! && exit /b 1)
+                '''
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                echo "🧹 Cleaning up container..."
+                bat '''
+                docker rm -f %CONTAINER_NAME% || echo No container to remove
                 '''
             }
         }
@@ -53,14 +62,6 @@ pipeline {
         }
         failure {
             echo "❌ Build failed. Check logs for details."
-        }
-        always {
-            stage('Cleanup') {
-                echo "🧹 Cleaning up container..."
-                bat '''
-                docker rm -f %CONTAINER_NAME% || echo No container to remove
-                '''
-            }
         }
     }
 }
