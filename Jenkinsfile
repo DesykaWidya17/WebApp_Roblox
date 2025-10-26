@@ -2,78 +2,88 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = "roblox-webapp"
-        CONTAINER_NAME = "roblox-webapp-container"
+        APP_NAME = "roblox-webapp"
+        DOCKER_IMAGE = "roblox-webapp:latest"
+        CONTAINER_NAME = "roblox_app"
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo "📦 Cloning repository..."
+                echo "📥 Checking out source code from Git..."
                 checkout scm
             }
         }
 
-        stage('Build Docker image') {
+        stage('Build Docker Image') {
             steps {
                 echo "🐳 Building Docker image..."
-                bat '''
+                bat """
                 docker build -t %DOCKER_IMAGE% .
-                '''
+                """
             }
         }
 
         stage('Run Container') {
             steps {
-                echo "🚀 Starting container..."
+                echo "🚀 Running Flask app container..."
+                bat """
+                docker rm -f %CONTAINER_NAME% >nul 2>&1 || echo No old container
+                docker run -d --name %CONTAINER_NAME% -p 5000:5000 %DOCKER_IMAGE%
+                """
+            }
+        }
+
+        stage('Test App Startup') {
+            steps {
+                echo "🔍 Waiting for Flask app to start..."
                 bat '''
-                docker rm -f %CONTAINER_NAME% || echo No container to remove
-                docker run -d -p 5000:5000 --name %CONTAINER_NAME% %DOCKER_IMAGE%
+                setlocal enabledelayedexpansion
+                set /a retries=0
+                :retry
+                curl -f http://localhost:5000/ >nul 2>&1
+                if !errorlevel! neq 0 (
+                    if !retries! lss 6 (
+                        set /a retries+=1
+                        echo Flask not ready yet... retry !retries!/6
+                        timeout /t 5 /nobreak >nul
+                        goto retry
+                    ) else (
+                        echo ❌ App did not start correctly after 6 retries!
+                        exit /b 1
+                    )
+                )
+                echo ✅ Flask app is reachable!
+                endlocal
                 '''
             }
         }
 
-        stage('Test') {
-    steps {
-        echo "🔍 Waiting for Flask app to start..."
-        bat '''
-        setlocal enabledelayedexpansion
-        set /a retries=0
-        :retry
-        curl -f http://localhost:5000/ >nul 2>&1
-        if !errorlevel! neq 0 (
-            if !retries! lss 6 (
-                set /a retries+=1
-                echo Flask not ready yet... retry !retries!/6
-                timeout /t 5 /nobreak >nul
-                goto retry
-            ) else (
-                echo App did not start correctly after 6 retries!
-                exit /b 1
-            )
-        )
-        echo ✅ Flask app is reachable!
-        endlocal
-        '''
-    }
-}
-
-        stage('Cleanup') {
+        stage('Run Python Tests') {
             steps {
-                echo "🧹 Cleaning up container..."
+                echo "🧪 Running pytest on Flask app endpoints..."
                 bat '''
-                docker rm -f %CONTAINER_NAME% || echo No container to remove
+                docker exec %CONTAINER_NAME% pip install pytest requests >nul
+                docker exec %CONTAINER_NAME% pytest -v --maxfail=1 --disable-warnings
                 '''
             }
         }
     }
 
     post {
+        always {
+            echo "🧹 Cleaning up containers..."
+            bat """
+            docker stop %CONTAINER_NAME% >nul 2>&1 || echo No container to stop
+            docker rm %CONTAINER_NAME% >nul 2>&1 || echo No container to remove
+            """
+        }
         success {
-            echo "✅ Build and test succeeded!"
+            echo "✅ Build & Test completed successfully!"
         }
         failure {
-            echo "❌ Build failed. Check logs for details."
+            echo "❌ Build or Test failed!"
         }
     }
 }
