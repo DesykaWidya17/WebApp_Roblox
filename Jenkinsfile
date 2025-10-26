@@ -42,6 +42,12 @@ pipeline {
             }
         }
 
+        stage('Check Python') {
+    steps {
+        bat '"C:\\Users\\<username>\\AppData\\Local\\Programs\\Python\\Python311\\python.exe" --version'
+    }
+}
+
         /* === 3. UNIT TESTS === */
         stage('Run Unit Tests') {
             steps {
