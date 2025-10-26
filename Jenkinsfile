@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "roblox-webapp"
+        DOCKER_IMAGE = "roblox-webapp"
         CONTAINER_NAME = "roblox-webapp-container"
     }
 
@@ -17,7 +17,9 @@ pipeline {
         stage('Build Docker image') {
             steps {
                 echo "🐳 Building Docker image..."
-                bat 'docker build -t %IMAGE_NAME% .'
+                bat '''
+                docker build -t %DOCKER_IMAGE% .
+                '''
             }
         }
 
@@ -25,8 +27,8 @@ pipeline {
             steps {
                 echo "🚀 Starting container..."
                 bat '''
-                    docker rm -f %CONTAINER_NAME% || echo No container to remove
-                    docker run -d -p 5000:5000 --name %CONTAINER_NAME% %IMAGE_NAME%
+                docker rm -f %CONTAINER_NAME% || echo No container to remove
+                docker run -d -p 5000:5000 --name %CONTAINER_NAME% %DOCKER_IMAGE%
                 '''
             }
         }
@@ -35,29 +37,30 @@ pipeline {
             steps {
                 echo "🔍 Testing if Flask app is reachable..."
                 bat '''
-                    timeout /t 5 >nul
-                    curl -f http://localhost:5000/ || (echo App did not start correctly! && exit /b 1)
-                '''
-            }
-        }
+                REM Tunggu Flask siap
+                timeout /t 10 /nobreak
 
-        stage('Cleanup') {
-            when {
-                expression { return env.BRANCH_NAME == 'main' }
-            }
-            steps {
-                echo "🧹 Cleaning up old images..."
-                bat 'docker image prune -f'
+                echo Testing connection to Flask app...
+                curl -f http://localhost:5000/ || (echo App did not start correctly! && exit /b 1)
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "✅ Build and deployment successful!"
+            echo "✅ Build and test succeeded!"
         }
         failure {
             echo "❌ Build failed. Check logs for details."
+        }
+        always {
+            stage('Cleanup') {
+                echo "🧹 Cleaning up container..."
+                bat '''
+                docker rm -f %CONTAINER_NAME% || echo No container to remove
+                '''
+            }
         }
     }
 }
