@@ -9,81 +9,59 @@ pipeline {
         EXTERNAL_PORT = '5050'
         DOCKER_HUB_USER = 'desykawidya'
 
-        // ✅ Tambahkan path Python agar Jenkins mengenalinya
+        // Tambahkan path Python agar dikenali Jenkins service
         PATH = "C:\\Users\\DESYKA\\AppData\\Local\\Programs\\Python\\Python312;C:\\Users\\DESYKA\\AppData\\Local\\Programs\\Python\\Python312\\Scripts;${env.PATH}"
     }
 
     stages {
-        /* === 1. CHECKOUT SOURCE CODE === */
-        stage('Checkout SCM') {
+        /* === 1. CHECKOUT === */
+        stage('Checkout') {
             steps {
-                echo "📥 Checking out source code from ${REPO_URL}..."
+                echo "📥 Checking out source code..."
                 deleteDir()
                 git branch: 'main', url: "${REPO_URL}"
                 echo "✅ Source code checkout complete!"
             }
         }
 
-        /* === 2. BUILD PYTHON ENVIRONMENT === */
-        stage('Build & Setup Environment') {
+        /* === 2. BUILD & TEST (GO) — tapi Python === */
+        stage('Build & Test (Go)') {
             steps {
-                echo "🧱 Setting up Python environment and dependencies..."
+                echo "🧱 Building and testing Python web app..."
                 bat '''
                 echo Checking Python version...
-                python --version || exit /b 1
+                "C:\\Users\\DESYKA\\AppData\\Local\\Programs\\Python\\Python312\\python.exe" --version || exit /b 1
+
                 echo Installing dependencies...
                 if exist requirements.txt (
                     pip install -r requirements.txt
                 ) else (
-                    echo ⚠️ No requirements.txt found, skipping install.
+                    echo ⚠️ No requirements.txt found. Skipping install.
                 )
-                echo ✅ Environment ready!
-                '''
-            }
-        }
 
-        stage('Check Python') {
-    steps {
-        bat '"C:\\Users\\<username>\\AppData\\Local\\Programs\\Python\\Python311\\python.exe" --version'
-    }
-}
-
-        /* === 3. UNIT TESTS === */
-        stage('Run Unit Tests') {
-            steps {
-                echo "🧪 Running Flask unit tests..."
-                bat '''
+                echo Running tests...
                 if exist tests (
                     pip install pytest requests
                     pytest -v --maxfail=1 --disable-warnings || exit /b 1
                 ) else (
-                    echo ⚠️ No tests folder found. Skipping tests.
+                    echo ⚠️ No test folder found. Skipping tests.
                 )
+
+                echo ✅ Python build & test complete!
                 '''
             }
         }
 
-        /* === 4. DOCKER BUILD === */
-        stage('Docker Build') {
+        /* === 3. DOCKER BUILD & TEST === */
+        stage('Docker Build & Test') {
             steps {
-                echo "🐳 Building Docker image..."
+                echo "🐳 Building Docker image and running container..."
                 bat '''
                 docker build -t %IMAGE_NAME%:latest . || exit /b 1
-                docker images %IMAGE_NAME%
-                echo ✅ Docker image build complete!
-                '''
-            }
-        }
-
-        /* === 5. DOCKER TEST RUN === */
-        stage('Docker Test Run') {
-            steps {
-                echo "🚀 Running container for health check..."
-                bat '''
                 docker rm -f %APP_NAME% 1>nul 2>&1
                 docker run -d --name %APP_NAME% -p %EXTERNAL_PORT%:%INTERNAL_PORT% %IMAGE_NAME%:latest
-                echo 🔍 Waiting for app to respond on port %EXTERNAL_PORT%...
 
+                echo 🔍 Checking app health on port %EXTERNAL_PORT%...
                 setlocal enabledelayedexpansion
                 set /a retries=0
                 :retry
@@ -100,13 +78,13 @@ pipeline {
                         exit /b 1
                     )
                 )
-                echo ✅ App responded successfully!
+                echo ✅ Container is healthy!
                 endlocal
                 '''
             }
         }
 
-        /* === 6. PUSH TO DOCKER HUB === */
+        /* === 4. PUSH TO DOCKER HUB === */
         stage('Push to Docker Hub') {
             steps {
                 echo "☁️ Pushing image to Docker Hub..."
@@ -125,18 +103,19 @@ pipeline {
 
     post {
         always {
-            echo "🧹 Cleaning up containers..."
+            echo "🧹 Cleaning up environment..."
             bat '''
             docker stop %APP_NAME% 1>nul 2>&1
             docker rm %APP_NAME% 1>nul 2>&1
+            docker system prune -f
             echo 🧽 Cleanup complete.
             '''
         }
         success {
-            echo "🎉 ALL STAGES SUCCESSFUL — your pipeline ran perfectly!"
+            echo "🎉 PIPELINE SUCCESS — All stages completed perfectly!"
         }
         failure {
-            echo "💥 PIPELINE FAILED — check the stage logs above for details."
+            echo "💥 PIPELINE FAILED — Check the logs above for details."
         }
     }
 }
