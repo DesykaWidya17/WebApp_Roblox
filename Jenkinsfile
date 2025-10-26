@@ -32,18 +32,31 @@ pipeline {
                 '''
             }
         }
+
         stage('Test') {
     steps {
-        echo "🧪 Running Python tests..."
+        echo "🔍 Waiting for Flask app to start..."
         bat '''
-        timeout /t 10 /nobreak >nul
-        pip install requests pytest
-        pytest -v tests/
+        setlocal enabledelayedexpansion
+        set /a retries=0
+        :retry
+        curl -f http://localhost:5000/ >nul 2>&1
+        if !errorlevel! neq 0 (
+            if !retries! lss 6 (
+                set /a retries+=1
+                echo Flask not ready yet... retry !retries!/6
+                timeout /t 5 /nobreak >nul
+                goto retry
+            ) else (
+                echo App did not start correctly after 6 retries!
+                exit /b 1
+            )
+        )
+        echo ✅ Flask app is reachable!
+        endlocal
         '''
     }
 }
-
-
 
         stage('Cleanup') {
             steps {
