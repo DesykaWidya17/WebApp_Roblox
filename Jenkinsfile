@@ -2,120 +2,109 @@ pipeline {
     agent any
 
     environment {
-        REPO_URL = 'https://github.com/DesykaWidya17/WebApp_Roblox.git'
-        APP_NAME = 'roblox_app'
-        IMAGE_NAME = 'roblox-webapp'
+        REPO_URL      = 'https://github.com/DesykaWidya17/WebApp_Roblox.git'
+        APP_NAME      = 'roblox_app'
+        IMAGE_NAME    = 'roblox-webapp'
         INTERNAL_PORT = '5000'
         EXTERNAL_PORT = '5050'
-        DOCKER_HUB_USER = 'desykawidya'  // Ganti dengan username Docker Hub kamu
+        DOCKER_USER   = ''   // optional: replace or use credential below
     }
 
     stages {
 
-        /* === 1. CHECKOUT SOURCE CODE === */
         stage('Checkout SCM') {
             steps {
-                echo "📥 Checking out source code from ${REPO_URL}..."
+                echo "Checking out source..."
                 git branch: 'main', url: "${REPO_URL}"
             }
         }
 
-        /* === 2. BUILD APP SOURCE CODE === */
-        stage('Build & Setup Environment') {
+        /*
+         * Build & tests run inside containers so we don't require python/pip on agent
+         */
+        stage('Build & Setup (Containerized)') {
             steps {
-                echo "🧱 Setting up Python environment..."
-                bat '''
-                python --version
-                pip install --upgrade pip
-                pip install -r requirements.txt
-                echo Python dependencies installed successfully.
-                '''
+                echo "Preparing build/test environment inside Python Docker image..."
+                // Use Docker to install dependencies inside a throwaway container
+                bat """
+                docker run --rm -v "%cd%:/app" -w /app python:3.11-slim ^
+                  sh -c "pip install --upgrade pip && pip install -r requirements.txt"
+                """
             }
         }
 
-        /* === 3. UNIT TEST === */
-        stage('Run Unit Tests') {
+        stage('Run Unit Tests (in container)') {
             steps {
-                echo "🧪 Running unit tests..."
-                bat '''
+                echo "Running unit tests inside Python container (if tests exist)..."
+                bat """
                 if not exist tests (
-                    echo No tests folder found. Skipping pytest.
+                    echo No tests folder found. Skipping tests.
                 ) else (
-                    pip install pytest requests
-                    pytest -v --maxfail=1 --disable-warnings || exit /b 1
+                    docker run --rm -v "%cd%:/app" -w /app python:3.11-slim ^
+                      sh -c "pip install --upgrade pip && pip install -r requirements.txt pytest requests && pytest -q --maxfail=1 --disable-warnings"
                 )
-                '''
+                """
             }
         }
 
-        /* === 4. DOCKER BUILD === */
         stage('Docker Build') {
             steps {
-                echo "🐳 Building Docker image: ${IMAGE_NAME}:latest"
-                bat '''
+                echo "Building Docker image..."
+                bat """
                 docker build -t %IMAGE_NAME%:latest .
-                '''
+                """
             }
         }
 
-        /* === 5. RUN & TEST CONTAINER === */
         stage('Docker Test Run') {
             steps {
-                echo "🚀 Running container and performing health check..."
-                bat '''
-                docker rm -f %APP_NAME% 1>nul 2>&1
-                docker run -d --name %APP_NAME% -p %EXTERNAL_PORT%:%INTERNAL_PORT% %IMAGE_NAME%:latest
-                echo Waiting for Flask app to start...
+                echo "Docker run + health check (uses external port %EXTERNAL_PORT%)..."
+                bat """
+                rem Remove any previous container with same name (ignore errors)
+                docker rm -f %APP_NAME% 1>nul 2>&1 || echo No previous container
 
+                rem Start container mapping EXTERNAL_PORT -> INTERNAL_PORT
+                docker run -d --name %APP_NAME% -p %EXTERNAL_PORT%:%INTERNAL_PORT% %IMAGE_NAME%:latest
+
+                rem Wait for app to be ready using PowerShell (retries)
                 powershell -Command ^
-                "$retries = 0; ^
-                while ($retries -lt 6) { ^
-                    try { ^
-                        Invoke-WebRequest -Uri http://localhost:%EXTERNAL_PORT% -UseBasicParsing | Out-Null; ^
-                        Write-Host 'Flask app is reachable!'; ^
-                        exit 0; ^
-                    } catch { ^
-                        Write-Host 'Flask not ready yet... retry' ($retries+1) '/6'; ^
-                        Start-Sleep -Seconds 5; ^
-                        $retries++; ^
-                    } ^
-                } ^
-                Write-Host 'App did not start correctly after retries!'; exit 1;"
-                '''
+                  "$retries=0; while ($retries -lt 12) { try { Invoke-WebRequest -UseBasicParsing -Uri http://localhost:%EXTERNAL_PORT% -TimeoutSec 5 | Out-Null; Write-Host 'OK'; exit 0 } catch { Write-Host 'Not ready... ' ($retries+1); Start-Sleep -Seconds 5; $retries++ } } ; Write-Host 'App not ready after retries'; exit 1"
+                """
             }
         }
 
-        /* === 6. PUSH TO DOCKER HUB === */
         stage('Push to Docker Hub') {
             steps {
-                echo "☁️ Pushing image to Docker Hub..."
+                echo "Pushing image to Docker Hub (if credentials provided)..."
+                // Make sure you added a Jenkins credential with ID 'docker-hub-cred'
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    bat '''
-                    echo Logging in to Docker Hub...
+                    bat """
+                    echo Logging in...
                     docker login -u %DOCKER_USER% -p %DOCKER_PASS%
                     docker tag %IMAGE_NAME%:latest %DOCKER_USER%/%IMAGE_NAME%:latest
                     docker push %DOCKER_USER%/%IMAGE_NAME%:latest
                     docker logout
-                    '''
+                    """
                 }
             }
         }
     }
 
-    /* === 7. POST ACTIONS === */
     post {
         always {
-            echo "🧹 Cleaning up containers..."
-            bat '''
-            docker stop %APP_NAME% 1>nul 2>&1
-            docker rm %APP_NAME% 1>nul 2>&1
-            '''
+            echo "Post: cleaning local containers (ignore errors)..."
+            // Ensure the post cleanup never fails the pipeline itself
+            bat """
+            docker stop %APP_NAME% 1>nul 2>&1 || echo No container to stop
+            docker rm %APP_NAME% 1>nul 2>&1 || echo No container to remove
+            exit /b 0
+            """
         }
         success {
-            echo "✅ Pipeline completed successfully and pushed to Docker Hub."
+            echo "Pipeline finished SUCCESS — image built (and pushed if credentials present)."
         }
         failure {
-            echo "❌ Pipeline failed! Check Jenkins logs for details."
+            echo "Pipeline FAILED — check console logs for details."
         }
     }
 }
