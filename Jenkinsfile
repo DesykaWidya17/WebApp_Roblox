@@ -32,19 +32,18 @@ pipeline {
                 '''
             }
         }
-
         stage('Test') {
-            steps {
-                echo "🔍 Testing if Flask app is reachable..."
-                bat '''
-                REM Tunggu Flask siap dulu
-                timeout /t 10 /nobreak >nul
+    steps {
+        echo "🧪 Running Python tests..."
+        bat '''
+        timeout /t 10 /nobreak >nul
+        pip install requests pytest
+        pytest -v tests/
+        '''
+    }
+}
 
-                echo Testing connection to Flask app...
-                curl -f http://localhost:5000/ || (echo App did not start correctly! && exit /b 1)
-                '''
-            }
-        }
+
 
         stage('Cleanup') {
             steps {
