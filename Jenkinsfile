@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    environment {
+        DOCKER_USER = credentials('DOCKER_USER')
+        DOCKER_PASS = credentials('DOCKER_PASS')
+    }
+
     stages {
         stage('Declarative: Checkout SCM') {
             steps {
@@ -24,10 +29,18 @@ pipeline {
                 echo Checking Python version...
                 where python
                 python --version
-                echo Installing dependencies if any...
-                pip install -r requirements.txt || echo No requirements.txt found
-                echo Running simple test...
-                python -m py_compile main.py || echo Skip test
+                echo Installing dependencies...
+                if exist requirements.txt (
+                    pip install -r requirements.txt
+                ) else (
+                    echo No requirements.txt found, skipping...
+                )
+                echo Running Python syntax check...
+                if exist main.py (
+                    python -m py_compile main.py
+                ) else (
+                    echo main.py not found, skipping test...
+                )
                 '''
             }
         }
@@ -38,7 +51,6 @@ pipeline {
                 bat '''
                 docker build -t roblox_app:latest .
                 docker run -d --name roblox_app -p 5000:5000 roblox_app:latest
-                echo Checking container status...
                 docker ps
                 '''
             }
@@ -58,22 +70,20 @@ pipeline {
 
     post {
         always {
-            stage('Declarative: Post Actions') {
-                steps {
-                    echo "🧹 Cleaning up containers..."
-                    bat '''
-                    docker stop roblox_app  1>nul 2>&1
-                    docker rm roblox_app  1>nul 2>&1
-                    echo 🧽 Cleanup complete.
-                    '''
-                }
-            }
+            echo "🧹 Cleaning up containers..."
+            bat '''
+            docker stop roblox_app  1>nul 2>&1
+            docker rm roblox_app  1>nul 2>&1
+            echo 🧽 Cleanup complete.
+            '''
         }
-        failure {
-            echo "💥 PIPELINE FAILED — check the stage logs above for details."
-        }
+
         success {
             echo "✅ PIPELINE SUCCESS — all stages completed."
+        }
+
+        failure {
+            echo "💥 PIPELINE FAILED — check the stage logs above for details."
         }
     }
 }
