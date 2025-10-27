@@ -1,11 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        DOCKER_USER = credentials('DOCKER_USER')
-        DOCKER_PASS = credentials('DOCKER_PASS')
-    }
-
     stages {
         stage('Declarative: Checkout SCM') {
             steps {
@@ -15,14 +10,14 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                echo "📥 Checking out source code from ${env.GIT_URL}..."
+                echo "📥 Checking out source code..."
                 deleteDir()
                 git branch: 'main', url: 'https://github.com/DesykaWidya17/WebApp_Roblox.git'
                 echo "✅ Source code checkout complete!"
             }
         }
 
-        stage('Build & Test (Go)') {
+        stage('Build & Test (Python)') {
             steps {
                 echo "🧱 Checking Python setup..."
                 bat '''
@@ -49,7 +44,11 @@ pipeline {
             steps {
                 echo "🐳 Building and testing Docker image..."
                 bat '''
+                REM Remove existing container if exists
+                docker rm -f roblox_app 1>nul 2>&1
+                REM Build Docker image
                 docker build -t roblox_app:latest .
+                REM Run Docker container
                 docker run -d --name roblox_app -p 5000:5000 roblox_app:latest
                 docker ps
                 '''
@@ -59,23 +58,27 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 echo "📦 Pushing image to Docker Hub..."
-                bat '''
-                docker login -u %DOCKER_USER% -p %DOCKER_PASS%
-                docker tag roblox_app:latest %DOCKER_USER%/roblox_app:latest
-                docker push %DOCKER_USER%/roblox_app:latest
-                '''
+                withCredentials([usernamePassword(credentialsId: 'DOCKER_USER', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    bat '''
+                    docker login -u %DOCKER_USER% -p %DOCKER_PASS%
+                    docker tag roblox_app:latest %DOCKER_USER%/roblox_app:latest
+                    docker push %DOCKER_USER%/roblox_app:latest
+                    '''
+                }
             }
         }
     }
 
     post {
         always {
-            echo "🧹 Cleaning up containers..."
-            bat '''
-            docker stop roblox_app  1>nul 2>&1
-            docker rm roblox_app  1>nul 2>&1
-            echo 🧽 Cleanup complete.
-            '''
+            node {
+                echo "🧹 Cleaning up containers..."
+                bat '''
+                docker stop roblox_app 1>nul 2>&1
+                docker rm roblox_app 1>nul 2>&1
+                echo 🧽 Cleanup complete.
+                '''
+            }
         }
 
         success {
