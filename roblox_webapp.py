@@ -20,15 +20,13 @@ Build Docker image:
 
 This single-file script writes the Dockerfile, requirements.txt and docker-compose.yml to disk
 so you can build and run inside Docker without copying additional files.
-
-Note: This uses the public Roblox endpoints. If Roblox changes their API endpoints or rate
-limits, you may need to update the URLs used in fetch_user().
 """
 
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template_string, jsonify
 import requests
 import os
 
+# ===================== HTML Frontend =====================
 APP_HTML = """
 <!doctype html>
 <html lang="en">
@@ -79,26 +77,28 @@ APP_HTML = """
 </html>
 """
 
+# ===================== Flask App =====================
 app = Flask(__name__)
 
-
 def fetch_user(username):
-    """Fetch basic Roblox user data by username.
-    Returns dict: {found: bool, username, userId, created, avatar_url}
-    """
-    # Endpoint to get user by username
+    """Fetch basic Roblox user data by username."""
     try:
-        resp = requests.get('https://api.roblox.com/users/get-by-username', params={'username': username}, timeout=8)
+        resp = requests.get(
+            'https://api.roblox.com/users/get-by-username',
+            params={'username': username},
+            timeout=8
+        )
         if resp.status_code != 200:
             return {'found': False, 'error': f'HTTP {resp.status_code}'}
+
         data = resp.json()
-        # Example successful response contains 'Id' and 'Username'
         if not data or 'Id' not in data or data.get('Id') == 0:
             return {'found': False}
+
         user_id = data['Id']
         username_real = data.get('Username', username)
 
-        # Created date — use users API (legacy). If not available, set None.
+        # Get creation date
         created = None
         try:
             details = requests.get(f'https://users.roblox.com/v1/users/{user_id}', timeout=8)
@@ -106,9 +106,8 @@ def fetch_user(username):
                 jd = details.json()
                 created = jd.get('created') or jd.get('createdDate')
         except Exception:
-            created = None
+            pass
 
-        # Avatar thumbnail
         avatar_url = f'https://www.roblox.com/headshot-thumbnail/image?userId={user_id}&width=150&height=150&format=png'
 
         return {
@@ -118,31 +117,28 @@ def fetch_user(username):
             'created': created,
             'avatar_url': avatar_url
         }
+
     except Exception as e:
         return {'found': False, 'error': str(e)}
-
 
 @app.route('/')
 def index():
     return render_template_string(APP_HTML)
 
-
 @app.route('/api/user/<username>')
 def api_user(username):
     info = fetch_user(username)
-    # Return JSON with appropriate HTTP status
     status = 200 if info.get('found') else 404
     return jsonify(info), status
 
-
-# Files to create for Docker integration
+# ===================== Docker Support =====================
 DOCKERFILE = '''
 # Dockerfile for Roblox Web Dashboard
 FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY roblox_webapp.py .
+COPY roblox_webapp.py ./
 EXPOSE 5000
 ENV FLASK_ENV=production
 CMD ["python", "roblox_webapp.py"]
@@ -159,10 +155,9 @@ services:
   web:
     build: .
     ports:
-      - '5000:5000'
+      - "5000:5000"
     restart: unless-stopped
 '''
-
 
 def ensure_supporting_files():
     created = []
@@ -180,7 +175,6 @@ def ensure_supporting_files():
         created.append('docker-compose.yml')
     return created
 
-
 if __name__ == '__main__':
     created = ensure_supporting_files()
     if created:
@@ -189,5 +183,5 @@ if __name__ == '__main__':
     else:
         print('Supporting files already exist.')
 
-    # Run the Flask app
+    # ✅ FIXED: Listen to all network interfaces so Jenkins can access it
     app.run(host='0.0.0.0', port=5000)
