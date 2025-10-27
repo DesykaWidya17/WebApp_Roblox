@@ -1,17 +1,18 @@
 pipeline {
     agent any
 
-    stages {
-        stage('Declarative: Checkout SCM') {
-            steps {
-                checkout scm
-            }
-        }
+    environment {
+        // Docker Hub credentials (pastikan sudah dibuat di Jenkins)
+        DOCKER_USER = credentials('DOCKER_USER')
+        DOCKER_PASS = credentials('DOCKER_PASS')
+    }
 
+    stages {
         stage('Checkout') {
             steps {
                 echo "📥 Checking out source code..."
                 deleteDir()
+                // Jika repo private, masukkan credentialsId
                 git branch: 'main', url: 'https://github.com/DesykaWidya17/WebApp_Roblox.git'
                 echo "✅ Source code checkout complete!"
             }
@@ -24,12 +25,14 @@ pipeline {
                 echo Checking Python version...
                 where python
                 python --version
+
                 echo Installing dependencies...
                 if exist requirements.txt (
                     pip install -r requirements.txt
                 ) else (
                     echo No requirements.txt found, skipping...
                 )
+
                 echo Running Python syntax check...
                 if exist main.py (
                     python -m py_compile main.py
@@ -46,10 +49,13 @@ pipeline {
                 bat '''
                 REM Remove existing container if exists
                 docker rm -f roblox_app 1>nul 2>&1
+
                 REM Build Docker image
                 docker build -t roblox_app:latest .
+
                 REM Run Docker container
                 docker run -d --name roblox_app -p 5000:5000 roblox_app:latest
+
                 docker ps
                 '''
             }
@@ -71,14 +77,12 @@ pipeline {
 
     post {
         always {
-            node {
-                echo "🧹 Cleaning up containers..."
-                bat '''
-                docker stop roblox_app 1>nul 2>&1
-                docker rm roblox_app 1>nul 2>&1
-                echo 🧽 Cleanup complete.
-                '''
-            }
+            echo "🧹 Cleaning up containers..."
+            bat '''
+            docker stop roblox_app 1>nul 2>&1
+            docker rm roblox_app 1>nul 2>&1
+            echo 🧽 Cleanup complete.
+            '''
         }
 
         success {
