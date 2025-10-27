@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        // Tambahkan path Node.js supaya Jenkins bisa detect node & npm
+        // Ganti sesuai lokasi nodejs kamu
         PATH = "C:\\Program Files\\nodejs\\;${env.PATH}"
         IMAGE_NAME = "roblox-webapp"
         CONTAINER_NAME = "roblox-webapp-container"
